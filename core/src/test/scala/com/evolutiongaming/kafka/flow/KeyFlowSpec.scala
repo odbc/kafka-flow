@@ -50,11 +50,11 @@ class KeyFlowSpec extends FunSuite {
       timerFlow <- timerFlowOf(context, persistence, timers)
       flow <- KeyFlow.of(f.fold, f.tick, persistence, timerFlow)
       // When("3 messages are sent to a flow")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
-      _ <- flow(f.records("key", 1, List("event1", "event2", "event3")))
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1)))
+      _ <- flow.onRecords(f.records("key", 1, List("event1", "event2", "event3")))
       // And("time comes to flush them")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1000000)))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1000000)))
+      _ <- flow.trigger
       messagesSent <- messagesSent.get
       // And("total of 3 messages is sent to a writer")
       _ <- SyncIO { assertEquals(messagesSent, 3) }
@@ -95,9 +95,9 @@ class KeyFlowSpec extends FunSuite {
         KeyFlow.of(fold, f.tick, persistence, timerFlow)
       }
       // When("a message is sent to a flow")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
-      _ <- flow(f.records("key", 1, List("event1")))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1)))
+      _ <- flow.onRecords(f.records("key", 1, List("event1")))
+      _ <- flow.trigger
       deleteCalled <- deleteCalled.get
       removeCalled <- removeCalled.get
       // Then("the flow is not done")
@@ -141,9 +141,9 @@ class KeyFlowSpec extends FunSuite {
         KeyFlow.of(fold, f.tick, persistence, timerFlow)
       }
       // When("a message is sent to a flow")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
-      _ <- flow(f.records("key", 1, List("event1")))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1)))
+      _ <- flow.onRecords(f.records("key", 1, List("event1")))
+      _ <- flow.trigger
       deleteCalled <- deleteCalled.get
       removeCalled <- removeCalled.get
       // Then("the flow is done")
@@ -186,12 +186,12 @@ class KeyFlowSpec extends FunSuite {
       timerFlow <- timerFlowOf(context, persistence, timers)
       flow <- KeyFlow.of(f.fold, f.tick, persistence, timerFlow)
       // When("3 messages are sent to a flow")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
-      _ <- flow(f.records("key", 2, List("event2", "event3", "event4")))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1)))
+      _ <- flow.onRecords(f.records("key", 2, List("event2", "event3", "event4")))
+      _ <- flow.trigger
       // And("time comes to flush them")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1000000)))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1000000)))
+      _ <- flow.trigger
       messagesSent <- messagesSent.get
       _ <- SyncIO {
         // And("total of 3 messages is sent to a writer")
@@ -211,12 +211,12 @@ class KeyFlowSpec extends FunSuite {
       _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
       flow <- KeyFlow.transient(f.fold, f.tick, TimerFlow.empty[SyncIO])
       // Given("a message is sent to a flow")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(1)))
-      _ <- flow(f.records("key", 1, List("event1")))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(1)))
+      _ <- flow.onRecords(f.records("key", 1, List("event1")))
+      _ <- flow.trigger
       // When("flush attempt happend")
-      _ <- timers.set(f.timestamp.copy(offset = Offset.unsafe(100002)))
-      _ <- timers.trigger(flow)
+      _ <- flow.timestamps.set(f.timestamp.copy(offset = Offset.unsafe(100002)))
+      _ <- flow.trigger
       holding <- context.holding
       // Then("flow does not say it is okay to remove the flow")
       _ <- SyncIO { assertEquals(holding, Some(Offset.unsafe(1))) }

@@ -7,6 +7,7 @@ import cats.effect.concurrent.Ref
 import cats.syntax.all._
 import cats.mtl.MonadState
 import com.olegpy.meow.effects._
+import cats.Applicative
 
 /** Contains timestamp related to a specific key.
   *
@@ -84,4 +85,10 @@ object ReadTimestamps {
 }
 object WriteTimestamps {
   def apply[F[_]](implicit F: WriteTimestamps[F]): WriteTimestamps[F] = F
+
+  def empty[F[_]: Applicative]: WriteTimestamps[F] = new WriteTimestamps[F] {
+    def set(timestamp: Timestamp) = ().pure[F]
+    def onPersisted = ().pure[F]
+    def onProcessed = ().pure[F]
+  }
 }

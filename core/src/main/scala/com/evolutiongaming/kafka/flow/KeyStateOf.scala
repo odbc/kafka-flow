@@ -20,7 +20,7 @@ trait KeyStateOf[F[_], K, A] { self =>
     key: K,
     createdAt: Timestamp,
     context: KeyContext[F]
-  ): Resource[F, KeyState[F, A]]
+  ): Resource[F, KeyFlow[F, A]]
 
   /** Restores a state for all keys present in persistence.
     *
@@ -45,7 +45,7 @@ trait KeyStateOf[F[_], K, A] { self =>
     * Could be used to count allocations for example.
     */
   def mapResource[B](
-    f: Resource[F, KeyState[F, A]] => Resource[F, KeyState[F, B]]
+    f: Resource[F, KeyFlow[F, A]] => Resource[F, KeyFlow[F, B]]
   ): KeyStateOf[F, K, B] = new KeyStateOf[F, K, B] {
     def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) =
       f(self.apply(key, createdAt, context))
@@ -86,13 +86,13 @@ object KeyStateOf {
 
     def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) = {
       implicit val _context = context
-      val keyState = for {
-        timers <- timersOf(key, createdAt)
-        persistence <- persistenceOf(key, fold, timers)
-        timerFlow <- timerFlowOf(context, persistence, timers)
-        keyFlow <- KeyFlow.of(fold, tick, persistence, timerFlow)
-      } yield KeyState(keyFlow, timers)
-      Resource.liftF(keyState)
+      Resource.liftF(timersOf(key, createdAt)) evalMap { implicit timers =>
+        for {
+          persistence <- persistenceOf(key, fold, timers)
+          timerFlow <- timerFlowOf(context, persistence, timers)
+          keyFlow <- KeyFlow.of(fold, tick, persistence, timerFlow)
+        } yield keyFlow
+      }
     }
 
     def all(topicPartition: TopicPartition): Stream[F, K] =
@@ -145,6 +145,7 @@ object KeyStateOf {
     persistenceOf = persistenceOf,
     keyFlowOf = { (context, persistence: Persistence[F, S, A], timers) =>
       implicit val _context = context
+      implicit val _timers = timers
       for {
         timerFlow <- timerFlowOf(context, persistence, timers)
         keyFlow <- KeyFlow.of(fold, tick, persistence, timerFlow)
@@ -190,14 +191,13 @@ object KeyStateOf {
     fold: FoldOption[F, S, A]
   ): KeyStateOf[F, K, A] = new KeyStateOf[F, K, A] {
 
-    def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) = {
-      val keyState = for {
-        timers <- timersOf(key, createdAt)
-        persistence <- persistenceOf(key, fold, timers)
-        keyFlow <- keyFlowOf(context, persistence, timers)
-      } yield KeyState(keyFlow, timers)
-      Resource.liftF(keyState)
-    }
+    def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) =
+      Resource.liftF(timersOf(key, createdAt)) evalMap { implicit timers =>
+        for {
+          persistence <- persistenceOf(key, fold, timers)
+          keyFlow <- keyFlowOf(context, persistence, timers)
+        } yield keyFlow
+      }
 
     def all(topicPartition: TopicPartition): Stream[F, K] =
       keysOf.all(applicationId, groupId, topicPartition)

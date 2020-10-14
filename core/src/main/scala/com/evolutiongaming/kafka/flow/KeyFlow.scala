@@ -9,57 +9,72 @@ import cats.mtl.MonadState
 import cats.syntax.all._
 import com.evolutiongaming.kafka.flow.persistence.Persistence
 import com.evolutiongaming.kafka.flow.timer.ReadTimestamps
+import com.evolutiongaming.kafka.flow.timer.TimerContext
+import com.evolutiongaming.kafka.flow.timer.Timers
+import com.evolutiongaming.kafka.flow.timer.Timestamps
+import com.evolutiongaming.kafka.flow.timer.WriteTimestamps
 import com.olegpy.meow.effects._
 import timer.TimerFlow
 
-trait KeyFlow[F[_], E] extends RecordFlow[F, E] with TimerFlow[F]
+trait KeyFlow[F[_], A] {
+
+  /** Update timestamps of the flow */
+  def timestamps: WriteTimestamps[F]
+
+  /** Process incoming records */
+  def onRecords: RecordFlow[F, A]
+
+  /** Triggers all the timers which were registered to trigger at or before current timestamp */
+  def trigger: F[Unit]
+
+}
 
 object KeyFlow {
 
-  /** Create buffered flow from RecordFlow and TimerFlow */
-  @deprecated("Use KeyFlow.of with fold parameter instead of RecordFlow.of", "0.1.0")
-  def apply[F[_], E](
-    recordFlow: RecordFlow[F, E],
-    timerFlow: TimerFlow[F]
-  ): KeyFlow[F, E] = new KeyFlow[F, E] {
-    def apply(records: NonEmptyList[E]) = recordFlow(records)
-    def onTimer = timerFlow.onTimer
-  }
-
   /** Create flow which persists snapshots, events and restores state if needed */
-  def of[F[_]: Sync: KeyContext, S, A](
+  def of[F[_]: Sync: KeyContext: TimerContext, S, A](
     fold: FoldOption[F, S, A],
     tick: TickOption[F, S],
     persistence: Persistence[F, S, A],
-    timer: TimerFlow[F]
+    timerFlow: TimerFlow[F]
   ): F[KeyFlow[F, A]] = Ref.of(none[S]) flatMap { storage =>
-    of(storage.stateInstance, fold, tick, persistence, timer)
+    of(storage.stateInstance, fold, tick, persistence, timerFlow)
   }
 
   /** Create flow which persists snapshots, events and restores state if needed */
-  def of[F[_]: Monad: KeyContext, S, A](
+  def of[F[_]: Monad: KeyContext: TimerContext, S, A](
     storage: MonadState[F, Option[S]],
     fold: FoldOption[F, S, A],
     tick: TickOption[F, S],
     persistence: Persistence[F, S, A],
-    timer: TimerFlow[F]
-  ): F[KeyFlow[F, A]] =
-    for {
-      state <- persistence.read(KeyContext[F].log)
-      _ <- storage.set(state)
-      foldToState = FoldToState(storage, fold, persistence)
-      tickToState = TickToState(storage, tick, persistence)
-    } yield new KeyFlow[F, A] {
-      def apply(records: NonEmptyList[A]) = foldToState(records)
-      def onTimer = tickToState.run *> timer.onTimer
-    }
+    timerFlow: TimerFlow[F]
+  ): F[KeyFlow[F, A]] = for {
+    state <- persistence.read(KeyContext[F].log)
+    _ <- storage.set(state)
+    foldToState = FoldToState(storage, fold, persistence)
+    tickToState = TickToState(storage, tick, persistence)
+    _timerFlow = TimerFlow(tickToState.run *> timerFlow.onTimer)
+  } yield new KeyFlow[F, A] {
+    def timestamps = WriteTimestamps[F]
+    def onRecords = foldToState(_)
+    def trigger = Timers[F].trigger(_timerFlow)
+  }
 
 
-  /** Does not save anything to the database */
-  def transient[F[_]: Sync: KeyContext: ReadTimestamps, K, S, A](
+  /** Does not save anything to the database.
+    *
+    * It also does not allow Kafka to commit until they key is fully processed.
+    * This flow could be used for the journals which are guaranteed to have
+    * the last event in a relatively short time.
+    *
+    * If there is a chance such final event will not come, other flow
+    * constuctors might be a better choice to avoid blocking commits to Kafka
+    * forever.
+    */
+  def transient[F[_]: Sync: KeyContext: TimerContext, K, S, A](
     fold: FoldOption[F, S, A],
     tick: TickOption[F, S],
-    timer: TimerFlow[F]
+    timerFlow: TimerFlow[F]
   ): F[KeyFlow[F, A]] =
     for {
       startedAt <- ReadTimestamps[F].current
@@ -67,14 +82,18 @@ object KeyFlow {
       storage <- Ref.of(none[S])
       foldToState = FoldToState(storage.stateInstance, fold, Persistence.empty[F, S, A])
       tickToState = TickToState(storage.stateInstance, tick, Persistence.empty[F, S, A])
+      _timerFlow = TimerFlow(tickToState.run *> timerFlow.onTimer)
     } yield new KeyFlow[F, A] {
-      def apply(records: NonEmptyList[A]) = foldToState(records)
-      def onTimer = tickToState.run *> timer.onTimer
+      def timestamps = WriteTimestamps[F]
+      def onRecords = foldToState(_)
+      def trigger = Timers[F].trigger(_timerFlow)
     }
 
-  def empty[F[_]: Applicative, A]: RecordFlow[F, A] = new KeyFlow[F, A] {
-    def apply(records: NonEmptyList[A]) = ().pure[F]
-    def onTimer = ().pure[F]
+  /** Ignores records, timestamp writes and triggers */
+  def empty[F[_]: Applicative, A]: KeyFlow[F, A] = new KeyFlow[F, A] {
+    def timestamps = WriteTimestamps.empty[F]
+    def onRecords = RecordFlow.empty[F, A]
+    def trigger = ().pure[F]
   }
 
 }

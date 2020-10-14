@@ -207,15 +207,14 @@ object PartitionFlowSpec {
     val flow = {
       val keyStateOf: KeyStateOf[IO, String, ConsRecord] = new KeyStateOf[IO, String, ConsRecord] {
         def apply(key: String, createdAt: Timestamp, context: KeyContext[IO]) =
-          Resource.liftF {
+          Resource.liftF(TimerContext.memory[IO, String](key, createdAt)) evalMap { implicit timers =>
             implicit val _context = context
             for {
-              timers <- TimerContext.memory[IO, String](key, createdAt)
               persistence <- persistenceOf(key, fold, timers)
               timerFlowOf = TimerFlowOf.unloadOrphaned[IO](fireEvery = 0.minutes)
               timerFlow <- timerFlowOf(context, persistence, timers)
               keyFlow <- KeyFlow.of(fold, TickOption.id[IO, State], persistence, timerFlow)
-            } yield KeyState(keyFlow, timers)
+            } yield keyFlow
           }
         def all(topicPartition: TopicPartition) = Stream.empty
       }

@@ -22,6 +22,10 @@ object TimerFlow {
 
   def apply[F[_]](implicit F: TimerFlow[F]): TimerFlow[F] = F
 
+  def apply[F[_]](run: F[Unit]): TimerFlow[F] = new TimerFlow[F] {
+    def onTimer = run
+  }
+
   def empty[F[_]: Applicative]: TimerFlow[F] = new TimerFlow[F] {
     def onTimer = ().pure[F]
   }

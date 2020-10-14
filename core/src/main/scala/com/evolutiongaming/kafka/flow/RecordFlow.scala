@@ -59,7 +59,6 @@ object RecordFlow {
       foldToState <- FoldToState.of(None, fold, Persistence.empty[F, S, A])
     } yield records => foldToState(records)
 
-  @deprecated("Use KeyFlow.of with fold parameter instead of RecordFlow.of", "0.1.0")
   def empty[F[_]: Applicative, A]: RecordFlow[F, A] = { _ =>
     ().pure[F]
   }

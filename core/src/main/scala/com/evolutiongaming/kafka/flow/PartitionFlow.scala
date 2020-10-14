@@ -33,10 +33,7 @@ trait PartitionFlow[F[_]] {
 
 object PartitionFlow {
 
-  final case class PartitionKey[F[_]](state: KeyState[F, ConsRecord], context: KeyContext[F]) {
-    def flow = state.flow
-    def timers = state.timers
-  }
+  final case class PartitionKey[F[_]](flow: KeyFlow[F, ConsRecord], context: KeyContext[F])
 
   def resource[F[_]: Concurrent: Parallel: Clock: LogOf, S](
     topicPartition: TopicPartition,
@@ -142,10 +139,10 @@ object PartitionFlow {
           offset = records.last.offset
         )
         stateOf(startedAt, key) flatMap { state =>
-          state.timers.set(startedAt) *>
-          state.flow(records) *>
-          state.timers.set(finishedAt) *>
-          state.timers.onProcessed
+          state.flow.timestamps.set(startedAt) *>
+          state.flow.onRecords(records) *>
+          state.flow.timestamps.set(finishedAt) *>
+          state.flow.timestamps.onProcessed
         }
       }
       lastRecord = records.last
@@ -163,8 +160,8 @@ object PartitionFlow {
       states <- cache.values
       _ <- states.values.toList.parTraverse_ { state =>
         state flatMap { state =>
-          state.timers.set(timestamp) *>
-          state.timers.trigger(state.flow)
+          state.flow.timestamps.set(timestamp) *>
+          state.flow.trigger
         }
       }
       _ <- triggerTimersAt update { triggerTimersAt =>
