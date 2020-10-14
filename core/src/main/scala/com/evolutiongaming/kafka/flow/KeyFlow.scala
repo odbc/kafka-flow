@@ -2,7 +2,6 @@ package com.evolutiongaming.kafka.flow
 
 import cats.Applicative
 import cats.Monad
-import cats.data.NonEmptyList
 import cats.effect.Sync
 import cats.effect.concurrent.Ref
 import cats.mtl.MonadState
@@ -11,7 +10,6 @@ import com.evolutiongaming.kafka.flow.persistence.Persistence
 import com.evolutiongaming.kafka.flow.timer.ReadTimestamps
 import com.evolutiongaming.kafka.flow.timer.TimerContext
 import com.evolutiongaming.kafka.flow.timer.Timers
-import com.evolutiongaming.kafka.flow.timer.Timestamps
 import com.evolutiongaming.kafka.flow.timer.WriteTimestamps
 import com.olegpy.meow.effects._
 import timer.TimerFlow
