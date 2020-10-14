@@ -4,6 +4,13 @@ title: Changelog
 sidebar_label: Changelog
 ---
 
+# 0.3.x
+
+## Breaking changes
+
+- `KeyFlow` reworked to include `KeyContext` functionality making `KeyState`
+obsolete and therefore removed.
+
 # 0.2.x
 
 ## New features
