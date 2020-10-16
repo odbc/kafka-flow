@@ -14,7 +14,7 @@ import timer.TimerFlowOf
 import timer.TimersOf
 import timer.Timestamp
 
-trait KeyStateOf[F[_], K, A] { self =>
+private[flow] trait KeyStateOf[F[_], K, A] { self =>
 
   /** Creates or restores a state for a single key */
   def apply(

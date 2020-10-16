@@ -29,4 +29,10 @@ object KeyFlowOf {
     }
   }
 
+  def apply[F[_]: Sync, K, S, A](
+    timerFlowOf: TimerFlowOf[F],
+    fold: FoldOption[F, S, A]
+  ): KeyFlowOf[F, S, A] =
+    KeyFlowOf(timerFlowOf, fold, TickOption.id)
+
 }
