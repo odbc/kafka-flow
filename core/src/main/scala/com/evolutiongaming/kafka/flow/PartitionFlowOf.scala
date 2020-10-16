@@ -33,7 +33,7 @@ trait PartitionFlowOf[F[_]] {
 object PartitionFlowOf {
 
   /** Creates `PartitionFlowOf` for specific application */
-  private def apply[F[_]: Concurrent: Timer: Parallel: LogOf, S](
+  private def eagerRecovery[F[_]: Concurrent: Timer: Parallel: LogOf, S](
     applicationId: String,
     groupId: String,
     keysOf: KeysOf[F, KafkaKey],
@@ -51,6 +51,24 @@ object PartitionFlowOf {
     )
   }
 
+  /** Creates `PartitionFlowOf` for specific application */
+  private def lazyRecovery[F[_]: Concurrent: Timer: Parallel: LogOf, S](
+    applicationId: String,
+    groupId: String,
+    keyStateOf: KeyStateOf[F, KafkaKey, ConsRecord],
+    config: PartitionFlowConfig
+  ): PartitionFlowOf[F] = { (topicPartition, assignedAt) =>
+    PartitionFlow.resource(
+      topicPartition = topicPartition,
+      assignedAt = assignedAt,
+      recoverKeys = Stream.empty,
+      keyStateOf = keyStateOf contramap { key =>
+        KafkaKey(applicationId, groupId, topicPartition, key)
+      },
+      config
+    )
+  }
+
   /** Does not recover keys until record with such key is encountered.
     *
     * This version only requires `TimerFlowOf` and uses default `RecordFlow`
@@ -60,7 +78,6 @@ object PartitionFlowOf {
   def lazyRecovery[F[_]: Concurrent: Parallel: Timer: LogOf, S](
     applicationId: String,
     groupId: String,
-    keysOf: KeysOf[F, KafkaKey],
     timersOf: TimersOf[F, KafkaKey],
     persistenceOf: PersistenceOf[F, KafkaKey, S, ConsRecord],
     timerFlowOf: TimerFlowOf[F],
@@ -68,7 +85,7 @@ object PartitionFlowOf {
     config: PartitionFlowConfig
   ): PartitionFlowOf[F] = lazyRecovery(
     applicationId, groupId,
-    keysOf, timersOf, persistenceOf, timerFlowOf,
+    timersOf, persistenceOf, timerFlowOf,
     fold, TickOption.id,
     config
   )
@@ -82,18 +99,21 @@ object PartitionFlowOf {
   def lazyRecovery[F[_]: Concurrent: Parallel: Timer: LogOf, S](
     applicationId: String,
     groupId: String,
-    keysOf: KeysOf[F, KafkaKey],
     timersOf: TimersOf[F, KafkaKey],
     persistenceOf: PersistenceOf[F, KafkaKey, S, ConsRecord],
     timerFlowOf: TimerFlowOf[F],
     fold: FoldOption[F, S, ConsRecord],
     tick: TickOption[F, S],
     config: PartitionFlowConfig
-  ): PartitionFlowOf[F] = PartitionFlowOf(
+  ): PartitionFlowOf[F] = lazyRecovery(
     applicationId = applicationId,
     groupId = groupId,
-    keysOf = keysOf,
-    keyStateOf = KeyStateOf(timersOf, persistenceOf, timerFlowOf, fold, tick),
+    keyStateOf = KeyStateOf(
+      timersOf = timersOf,
+      persistenceOf = persistenceOf,
+      keyFlowOf = KeyFlowOf(timerFlowOf, fold, tick),
+      recover = fold
+    ),
     config = config
   )
 
@@ -142,7 +162,7 @@ object PartitionFlowOf {
     keysOf = keysOf,
     timersOf = timersOf,
     persistenceOf = persistenceOf,
-    keyFlowOf = { (context: KeyContext[F], persistence: Persistence[F, S, ConsRecord], timers: TimerContext[F]) =>
+    keyFlowOf = { (context, persistence: Persistence[F, S, ConsRecord], timers) =>
       implicit val _context = context
       for {
         timerFlow <- timerFlowOf(context, persistence, timers)
@@ -191,7 +211,7 @@ object PartitionFlowOf {
     keyFlowOf: KeyFlowOf[F, S, ConsRecord],
     recover: FoldOption[F, S, ConsRecord],
     config: PartitionFlowConfig
-  ): PartitionFlowOf[F] = PartitionFlowOf(
+  ): PartitionFlowOf[F] = eagerRecovery(
     applicationId = applicationId,
     groupId = groupId,
     keysOf = keysOf,

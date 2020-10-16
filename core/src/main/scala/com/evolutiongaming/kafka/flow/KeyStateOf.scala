@@ -48,30 +48,6 @@ object KeyStateOf {
 
   /** Creates or recovers the key state.
     *
-    * This version only requires `TimerFlowOf` and uses default `RecordFlow`
-    * which reads the state from the generic persistence folds it using
-    * default `FoldToState`.
-    */
-  def apply[F[_]: Sync, K, S, A](
-    timersOf: TimersOf[F, K],
-    persistenceOf: PersistenceOf[F, K, S, A],
-    timerFlowOf: TimerFlowOf[F],
-    fold: FoldOption[F, S, A],
-    tick: TickOption[F, S]
-  ): KeyStateOf[F, K, A] = apply(
-    timersOf = timersOf,
-    persistenceOf = persistenceOf,
-    keyFlowOf = { (context, persistence: Persistence[F, S, A], timers) =>
-      implicit val _context = context
-      timerFlowOf(context, persistence, timers) flatMap { timerFlow =>
-        KeyFlow.of(fold, tick, persistence, timerFlow)
-      }
-    },
-    recover = fold
-  )
-
-  /** Creates or recovers the key state.
-    *
     * This version allows one to construct a custom `KeyFlowOf`
     * for generic persistence.
     */
