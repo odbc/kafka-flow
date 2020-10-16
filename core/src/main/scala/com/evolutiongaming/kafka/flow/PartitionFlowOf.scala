@@ -4,16 +4,13 @@ import cats.Parallel
 import cats.effect.Concurrent
 import cats.effect.Resource
 import cats.effect.Resource
-import cats.effect.Sync
 import cats.effect.Timer
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.LogOf
-import com.evolutiongaming.kafka.flow.timer.TimerContext
 import com.evolutiongaming.kafka.journal.ConsRecord
 import com.evolutiongaming.skafka.Offset
 import com.evolutiongaming.skafka.TopicPartition
 import com.evolutiongaming.skafka.TopicPartition
-import com.evolutiongaming.smetrics.MeasureDuration
 import com.evolutiongaming.sstream.Stream
 import key.KeysOf
 import persistence.Persistence
@@ -21,7 +18,6 @@ import persistence.PersistenceOf
 import persistence.SnapshotPersistenceOf
 import timer.TimerFlowOf
 import timer.TimersOf
-import timer.Timestamp
 
 
 trait PartitionFlowOf[F[_]] {

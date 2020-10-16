@@ -3,14 +3,7 @@ package com.evolutiongaming.kafka.flow
 import cats.effect.Resource
 import cats.effect.Sync
 import cats.syntax.all._
-import com.evolutiongaming.kafka.flow.timer.TimerContext
-import com.evolutiongaming.skafka.TopicPartition
-import com.evolutiongaming.sstream.Stream
-import key.KeysOf
-import persistence.Persistence
 import persistence.PersistenceOf
-import persistence.SnapshotPersistenceOf
-import timer.TimerFlowOf
 import timer.TimersOf
 import timer.Timestamp
 

@@ -1,6 +1,5 @@
 package com.evolutiongaming.kafka.flow
 
-import cats.Monad
 import cats.effect.Resource
 import cats.effect.Sync
 import cats.syntax.all._
