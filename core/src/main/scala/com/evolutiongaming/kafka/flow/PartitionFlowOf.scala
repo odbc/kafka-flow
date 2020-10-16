@@ -164,10 +164,9 @@ object PartitionFlowOf {
     persistenceOf = persistenceOf,
     keyFlowOf = { (context, persistence: Persistence[F, S, ConsRecord], timers) =>
       implicit val _context = context
-      for {
-        timerFlow <- timerFlowOf(context, persistence, timers)
-        keyFlow <- KeyFlow.of(fold, tick, persistence, timerFlow)
-      } yield keyFlow
+      Resource.liftF(timerFlowOf(context, persistence, timers)) evalMap { timerFlow =>
+        KeyFlow.of(fold, tick, persistence, timerFlow)
+      }
     },
     recover = fold,
     config = config

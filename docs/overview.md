@@ -211,19 +211,23 @@ database (usually Cassandra).
 
 The typical call of `PartitionFlowOf` could look like following:
 ```scala mdoc
+import com.evolutiongaming.kafka.flow.PartitionFlowConfig
 import com.evolutiongaming.kafka.flow.PartitionFlowOf
 
 def partitionFlowOf: PartitionFlowOf[IO] =
-  PartitionFlowOf(
+  PartitionFlowOf.eagerRecovery(
     applicationId = "interesting-journal-reader-writer",
     groupId = "consumer-group-id",
-    keyStateOf = ???
+    keysOf = ???,
+    timersOf = ???,
+    persistenceOf = ???,
+    keyFlowOf = ???,
+    config = PartitionFlowConfig()
   )
 ```
 
-The default implementation maintains the list of `KeyState` objects,
-which contains a tuple of `KeyFlow` and `TimerContext` objects,
-which are discussed further.
+The default implementation maintains the cache of `KeyFlow` and `TimerContext`
+tuples, which are discussed further.
 
 Besides that, it also responsible for the following functions:
 - Sending consumer records to underlying `KeyFlow` instaces in a thread safe way,
@@ -233,7 +237,7 @@ Besides that, it also responsible for the following functions:
   i.e. removing `KeyFlow` if processing of the key is finished, or holding the
   commits in the specific partition until moving forward is allowed.
 
-The `keyStateOf` parameter is discussed further in this document.
+The `keyFlowOf` parameter is discussed further in this document.
 
 ### Configuration
 
@@ -280,7 +284,7 @@ import com.evolutiongaming.kafka.flow.metrics.syntax._
 def paritionFlowOfWithMetrics = partitionFlowOf.withCollectorRegistry(???)
 ```
 
-## KeyStateOf
+## KeyFlow
 
 `KeyState` contains all the state information for specific key. This includes
 the actual aggregation state and the state of the timers.

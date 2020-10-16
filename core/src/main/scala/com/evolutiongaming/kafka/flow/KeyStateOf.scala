@@ -32,17 +32,6 @@ private[flow] trait KeyStateOf[F[_], K, A] { self =>
       self.apply(g(key), createdAt, context)
   }
 
-  /** Transforms returned `KeyState` to something else.
-    *
-    * Could be used to count allocations for example.
-    */
-  def mapResource[B](
-    f: Resource[F, KeyState[F, A]] => Resource[F, KeyState[F, B]]
-  ): KeyStateOf[F, K, B] = new KeyStateOf[F, K, B] {
-    def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) =
-      f(self.apply(key, createdAt, context))
-  }
-
 }
 object KeyStateOf {
 
@@ -57,12 +46,11 @@ object KeyStateOf {
     keyFlowOf: KeyFlowOf[F, S, A],
     recover: FoldOption[F, S, A]
   ): KeyStateOf[F, K, A] = { (key, createdAt, context) =>
-    val keyState = for {
-      timers <- timersOf(key, createdAt)
-      persistence <- persistenceOf(key, recover, timers)
+    for {
+      timers <- Resource.liftF(timersOf(key, createdAt))
+      persistence <- Resource.liftF(persistenceOf(key, recover, timers))
       keyFlow <- keyFlowOf(context, persistence, timers)
     } yield KeyState(keyFlow, timers, context.holding)
-    Resource.liftF(keyState)
   }
 
 }

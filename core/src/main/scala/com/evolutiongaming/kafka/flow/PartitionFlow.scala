@@ -34,7 +34,7 @@ trait PartitionFlow[F[_]] {
 
 object PartitionFlow {
 
-  def resource[F[_]: Concurrent: Parallel: Clock: LogOf, S](
+  private[flow] def resource[F[_]: Concurrent: Parallel: Clock: LogOf, S](
     topicPartition: TopicPartition,
     assignedAt: Offset,
     recoverKeys: Stream[F, String],
@@ -50,7 +50,7 @@ object PartitionFlow {
       }
     } yield flow
 
-  def of[F[_]: Concurrent: Parallel: Clock: Log, S](
+  private[flow] def of[F[_]: Concurrent: Parallel: Clock: Log, S](
     assignedAt: Offset,
     recoverKeys: Stream[F, String],
     keyStateOf: KeyStateOf[F, String, ConsRecord],
