@@ -217,14 +217,14 @@ object PartitionFlowSpec {
               keyFlow <- KeyFlow.of(fold, TickOption.id[IO, State], persistence, timerFlow)
             } yield KeyState(keyFlow, timers, context.holding)
           }
-        def all(topicPartition: TopicPartition) = Stream.empty
       }
       implicit val clock = Clock.create[IO]
       PartitionFlow.resource(
-        TopicPartition.empty,
-        Offset.unsafe(100),
-        keyStateOf,
-        PartitionFlowConfig(
+        topicPartition = TopicPartition.empty,
+        assignedAt = Offset.unsafe(100),
+        recoverKeys = Stream.empty[IO, String],
+        keyStateOf = keyStateOf,
+        config = PartitionFlowConfig(
           triggerTimersInterval = 0.seconds,
           commitOffsetsInterval = 0.seconds
         )

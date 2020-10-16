@@ -13,6 +13,7 @@ import com.evolutiongaming.kafka.journal.ConsRecord
 import com.evolutiongaming.scache.Cache
 import com.evolutiongaming.scache.Releasable
 import com.evolutiongaming.skafka.{Offset, TopicPartition}
+import com.evolutiongaming.sstream.Stream
 import consumer.OffsetToCommit
 import java.time.Instant
 import timer.Timestamp
@@ -36,6 +37,7 @@ object PartitionFlow {
   def resource[F[_]: Concurrent: Parallel: Clock: LogOf, S](
     topicPartition: TopicPartition,
     assignedAt: Offset,
+    recoverKeys: Stream[F, String],
     keyStateOf: KeyStateOf[F, String, ConsRecord],
     config: PartitionFlowConfig
   ): Resource[F, PartitionFlow[F]] =
@@ -44,13 +46,13 @@ object PartitionFlow {
       cache <- Cache.loading[F, String, KeyState[F, ConsRecord]]
       flow  <- Resource.liftF {
         implicit val _log = log
-        of(topicPartition, assignedAt, keyStateOf, cache, config)
+        of(assignedAt, recoverKeys, keyStateOf, cache, config)
       }
     } yield flow
 
   def of[F[_]: Concurrent: Parallel: Clock: Log, S](
-    topicPartition: TopicPartition,
     assignedAt: Offset,
+    recoverKeys: Stream[F, String],
     keyStateOf: KeyStateOf[F, String, ConsRecord],
     cache: Cache[F, String, KeyState[F, ConsRecord]],
     config: PartitionFlowConfig
@@ -61,7 +63,7 @@ object PartitionFlow {
     triggerTimersAt <- Ref.of(clock)
     commitOffsetsAt <- Ref.of(clock)
     flow <- of(
-      topicPartition,
+      recoverKeys,
       keyStateOf,
       committedOffset,
       timestamp,
@@ -74,7 +76,7 @@ object PartitionFlow {
 
   // TODO: put most `Ref` variables into one state class?
   def of[F[_]: Concurrent: Parallel: Clock: Log, S](
-    topicPartition: TopicPartition,
+    recoverKeys: Stream[F, String],
     keyStateOf: KeyStateOf[F, String, ConsRecord],
     committedOffset: Ref[F, Offset],
     timestamp: Ref[F, Timestamp],
@@ -101,17 +103,16 @@ object PartitionFlow {
       clock <- Clock[F].instant
       committedOffset <- committedOffset.get
       timestamp = Timestamp(clock, None, committedOffset)
-      keys = keyStateOf.all(topicPartition)
       _ <- Log[F].info("partition recovery started")
       count <-
         if (config.parallelRecovery) {
-          keys.toList flatMap { keys =>
+          recoverKeys.toList flatMap { keys =>
             keys.parFoldMapA { key =>
               stateOf(timestamp, key) as 1
             }
           }
         } else {
-          keys.foldM(0) { (count, key) =>
+          recoverKeys.foldM(0) { (count, key) =>
             stateOf(timestamp, key) as (count + 1)
           }
         }

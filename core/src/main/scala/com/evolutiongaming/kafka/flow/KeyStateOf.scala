@@ -3,6 +3,7 @@ package com.evolutiongaming.kafka.flow
 import cats.effect.Resource
 import cats.effect.Sync
 import cats.syntax.all._
+import com.evolutiongaming.kafka.flow.timer.TimerContext
 import com.evolutiongaming.skafka.TopicPartition
 import com.evolutiongaming.sstream.Stream
 import key.KeysOf
@@ -22,22 +23,13 @@ trait KeyStateOf[F[_], K, A] { self =>
     context: KeyContext[F]
   ): Resource[F, KeyState[F, A]]
 
-  /** Restores a state for all keys present in persistence.
-    *
-    * The usual way to call this method is before starting processing consumer
-    * records.
-*/
-  def all(topicPartition: TopicPartition): Stream[F, K]
-
   /** Transforms `K` parameter into something else.
     *
     * See also `Invariant#imap`.
     */
-  def imap[L](f: K => L)(g: L => K): KeyStateOf[F, L, A] = new KeyStateOf[F, L, A] {
+  def contramap[L](g: L => K): KeyStateOf[F, L, A] = new KeyStateOf[F, L, A] {
     def apply(key: L, createdAt: Timestamp, context: KeyContext[F]) =
       self.apply(g(key), createdAt, context)
-    def all(topicPartition: TopicPartition) =
-      self.all(topicPartition) map f
   }
 
   /** Transforms returned `KeyState` to something else.
@@ -49,70 +41,52 @@ trait KeyStateOf[F[_], K, A] { self =>
   ): KeyStateOf[F, K, B] = new KeyStateOf[F, K, B] {
     def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) =
       f(self.apply(key, createdAt, context))
-    def all(topicPartition: TopicPartition) =
-      self.all(topicPartition)
   }
 
 }
 object KeyStateOf {
 
-  /** Does not recover keys until record with such key is encountered.
+  /** Creates or recovers the key state.
     *
     * This version only requires `TimerFlowOf` and uses default `RecordFlow`
     * which reads the state from the generic persistence folds it using
     * default `FoldToState`.
     */
-  def lazyRecovery[F[_]: Sync, K, S, A](
+  def apply[F[_]: Sync, K, S, A](
     timersOf: TimersOf[F, K],
     persistenceOf: PersistenceOf[F, K, S, A],
     timerFlowOf: TimerFlowOf[F],
     fold: FoldOption[F, S, A],
     tick: TickOption[F, S]
-  ): KeyStateOf[F, K, A] = new KeyStateOf[F, K, A] {
-
-    def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) = {
+  ): KeyStateOf[F, K, A] = apply(
+    timersOf = timersOf,
+    persistenceOf = persistenceOf,
+    keyFlowOf = { (context, persistence: Persistence[F, S, A], timers) =>
       implicit val _context = context
-      val keyState = for {
-        timers <- timersOf(key, createdAt)
-        persistence <- persistenceOf(key, fold, timers)
-        timerFlow <- timerFlowOf(context, persistence, timers)
-        keyFlow <- KeyFlow.of(fold, tick, persistence, timerFlow)
-      } yield KeyState(keyFlow, timers, context.holding)
-      Resource.liftF(keyState)
-    }
+      timerFlowOf(context, persistence, timers) flatMap { timerFlow =>
+        KeyFlow.of(fold, tick, persistence, timerFlow)
+      }
+    },
+    recover = fold
+  )
 
-    def all(topicPartition: TopicPartition): Stream[F, K] =
-      Stream.empty
-
-  }
-
-  /** Recovers keys as soon as partition is assigned.
+  /** Creates or recovers the key state.
     *
     * This version allows one to construct a custom `KeyFlowOf`
     * for generic persistence.
     */
-  def eagerRecovery[F[_]: Sync, K, S, A](
-    applicationId: String,
-    groupId: String,
-    keysOf: KeysOf[F, K],
+  def apply[F[_]: Sync, K, S, A](
     timersOf: TimersOf[F, K],
     persistenceOf: PersistenceOf[F, K, S, A],
     keyFlowOf: KeyFlowOf[F, S, A],
     recover: FoldOption[F, S, A]
-  ): KeyStateOf[F, K, A] = new KeyStateOf[F, K, A] {
-
-    def apply(key: K, createdAt: Timestamp, context: KeyContext[F]) = {
-      val keyState = for {
-        timers <- timersOf(key, createdAt)
-        persistence <- persistenceOf(key, recover, timers)
-        keyFlow <- keyFlowOf(context, persistence, timers)
-      } yield KeyState(keyFlow, timers, context.holding)
-      Resource.liftF(keyState)
-    }
-
-    def all(topicPartition: TopicPartition): Stream[F, K] =
-      keysOf.all(applicationId, groupId, topicPartition)
-
+  ): KeyStateOf[F, K, A] = { (key, createdAt, context) =>
+    val keyState = for {
+      timers <- timersOf(key, createdAt)
+      persistence <- persistenceOf(key, recover, timers)
+      keyFlow <- keyFlowOf(context, persistence, timers)
+    } yield KeyState(keyFlow, timers, context.holding)
+    Resource.liftF(keyState)
   }
 
 }

@@ -3,16 +3,17 @@ package com.evolutiongaming.kafka.flow
 import cats.Parallel
 import cats.effect.Concurrent
 import cats.effect.Resource
+import cats.effect.Resource
+import cats.effect.Sync
 import cats.effect.Timer
+import cats.syntax.all._
 import com.evolutiongaming.catshelper.LogOf
+import com.evolutiongaming.kafka.flow.timer.TimerContext
 import com.evolutiongaming.kafka.journal.ConsRecord
 import com.evolutiongaming.skafka.Offset
 import com.evolutiongaming.skafka.TopicPartition
-import com.evolutiongaming.smetrics.MeasureDuration
-import cats.effect.Resource
-import cats.effect.Sync
-import cats.syntax.all._
 import com.evolutiongaming.skafka.TopicPartition
+import com.evolutiongaming.smetrics.MeasureDuration
 import com.evolutiongaming.sstream.Stream
 import key.KeysOf
 import persistence.Persistence
@@ -21,7 +22,6 @@ import persistence.SnapshotPersistenceOf
 import timer.TimerFlowOf
 import timer.TimersOf
 import timer.Timestamp
-import com.evolutiongaming.kafka.flow.timer.TimerContext
 
 
 trait PartitionFlowOf[F[_]] {
@@ -36,13 +36,15 @@ object PartitionFlowOf {
   private def apply[F[_]: Concurrent: Timer: Parallel: LogOf, S](
     applicationId: String,
     groupId: String,
+    keysOf: KeysOf[F, KafkaKey],
     keyStateOf: KeyStateOf[F, KafkaKey, ConsRecord],
     config: PartitionFlowConfig
   ): PartitionFlowOf[F] = { (topicPartition, assignedAt) =>
     PartitionFlow.resource(
       topicPartition = topicPartition,
       assignedAt = assignedAt,
-      keyStateOf = keyStateOf.imap(_.key) { key =>
+      recoverKeys = keysOf.all(applicationId, groupId, topicPartition) map (_.key),
+      keyStateOf = keyStateOf contramap { key =>
         KafkaKey(applicationId, groupId, topicPartition, key)
       },
       config
@@ -58,13 +60,18 @@ object PartitionFlowOf {
   def lazyRecovery[F[_]: Concurrent: Parallel: Timer: LogOf, S](
     applicationId: String,
     groupId: String,
+    keysOf: KeysOf[F, KafkaKey],
     timersOf: TimersOf[F, KafkaKey],
     persistenceOf: PersistenceOf[F, KafkaKey, S, ConsRecord],
     timerFlowOf: TimerFlowOf[F],
     fold: FoldOption[F, S, ConsRecord],
     config: PartitionFlowConfig
-  ): PartitionFlowOf[F] =
-    lazyRecovery(applicationId, groupId, timersOf, persistenceOf, timerFlowOf, fold, TickOption.id, config)
+  ): PartitionFlowOf[F] = lazyRecovery(
+    applicationId, groupId,
+    keysOf, timersOf, persistenceOf, timerFlowOf,
+    fold, TickOption.id,
+    config
+  )
 
   /** Does not recover keys until record with such key is encountered.
     *
@@ -75,6 +82,7 @@ object PartitionFlowOf {
   def lazyRecovery[F[_]: Concurrent: Parallel: Timer: LogOf, S](
     applicationId: String,
     groupId: String,
+    keysOf: KeysOf[F, KafkaKey],
     timersOf: TimersOf[F, KafkaKey],
     persistenceOf: PersistenceOf[F, KafkaKey, S, ConsRecord],
     timerFlowOf: TimerFlowOf[F],
@@ -84,7 +92,8 @@ object PartitionFlowOf {
   ): PartitionFlowOf[F] = PartitionFlowOf(
     applicationId = applicationId,
     groupId = groupId,
-    keyStateOf = KeyStateOf.lazyRecovery(timersOf, persistenceOf, timerFlowOf, fold, tick),
+    keysOf = keysOf,
+    keyStateOf = KeyStateOf(timersOf, persistenceOf, timerFlowOf, fold, tick),
     config = config
   )
 
@@ -185,8 +194,9 @@ object PartitionFlowOf {
   ): PartitionFlowOf[F] = PartitionFlowOf(
     applicationId = applicationId,
     groupId = groupId,
-    keyStateOf = KeyStateOf.eagerRecovery(
-      applicationId, groupId, keysOf, timersOf, persistenceOf, keyFlowOf, recover
+    keysOf = keysOf,
+    keyStateOf = KeyStateOf(
+      timersOf, persistenceOf, keyFlowOf, recover
     ),
     config = config
   )
